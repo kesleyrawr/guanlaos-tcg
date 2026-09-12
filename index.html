@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en-PH">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GUANLAO'S TCG — Scan, Collect & Track Value</title>
+  <meta name="description" content="Scan Pokémon and One Piece cards, compare price sources, and track collection value in Philippine pesos." />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <div class="brand"><span class="brand-icon">▰</span><div><b>GUANLAO'S</b><small>TCG COLLECTOR</small></div></div>
+      <nav id="sideNav">
+        <button data-view="home" class="active">▦ Overview</button>
+        <button data-view="collection">▤ My collection <em id="navCount">0</em></button>
+        <button data-view="search">⌕ Card search</button>
+        <button data-view="scan">⌗ Scan card</button>
+        <button data-view="calendar">▣ Release calendar</button>
+      </nav>
+      <div class="aside-foot">
+        <div class="sync"><i></i><span><b>Saved on this device</b><small id="syncStatus">Ready</small></span></div>
+        <button data-view="settings">⚙ Settings</button>
+      </div>
+    </aside>
+
+    <main>
+      <div id="clock" class="live-clock"></div>
+      <header>
+        <div class="mobile-brand"><b>GUANLAO'S</b></div>
+        <div class="searchbox"><span>⌕</span><input id="globalSearch" placeholder="Search name, set, or card number…" /></div>
+        <button class="primary" id="scanTop">📷 Scan a card</button>
+        <button class="avatar">BS</button>
+      </header>
+
+      <section class="backup-panel">
+        <details open>
+          <summary><b>PC backup</b><span id="backupHeadline">Automatic backup not connected</span></summary>
+          <div class="backup-body">
+            <p>Your collection stays in this browser. When a PC folder is connected, every collection change overwrites one backup file instead of creating many copies.</p>
+            <p><b>File:</b> GUANLAOS-TCG-BACKUP.json<br><b>Folder:</b> <span id="backupFolder">Not connected</span><br><b>Last successful backup:</b> <span id="lastBackup">—</span></p>
+            <p id="backupStatus" role="status">Choose a folder once to enable one-file automatic backups.</p>
+            <div class="backup-actions">
+              <button id="connectBackup">Connect folder</button>
+              <button id="backupNow">Back up now</button>
+              <button id="downloadBackup">Download backup</button>
+              <label>Restore backup<input id="restoreInput" type="file" accept=".json,application/json" hidden></label>
+            </div>
+            <p class="muted">Chrome/Edge desktop can overwrite the same file after you grant folder access. If permission expires after a browser restart, reconnect the folder.</p>
+          </div>
+        </details>
+      </section>
+
+      <div id="content" class="content"></div>
+    </main>
+
+    <nav class="mobile-nav">
+      <button data-view="home">⌂<small>Overview</small></button>
+      <button data-view="collection">▤<small>Collection</small></button>
+      <button data-view="scan" class="round">📷</button>
+      <button data-view="search">⌕<small>Search</small></button>
+      <button data-view="calendar">▣<small>Calendar</small></button>
+    </nav>
+  </div>
+
+  <dialog id="cardDialog" class="modal"><div id="cardDialogBody"></div><button class="modal-close" onclick="document.getElementById('cardDialog').close()">×</button></dialog>
+  <div id="toast" class="toast" hidden></div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
