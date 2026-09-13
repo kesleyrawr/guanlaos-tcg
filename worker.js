@@ -10,6 +10,10 @@ function json(data, init = {}) {
   return new Response(JSON.stringify(data), { ...init, headers });
 }
 
+function norm(value = '') {
+  return String(value).toLowerCase().replace(/[^a-z0-9ぁ-んァ-ン一-龯]/g, '');
+}
+
 function gameSlug(value = '') {
   const v = String(value).toLowerCase();
   if (v.includes('pok')) return 'pokemon';
@@ -21,38 +25,8 @@ function displayGame(slug = '') {
   return slug === 'pokemon' ? 'Pokémon' : slug === 'one-piece-card-game' ? 'One Piece' : 'TCG';
 }
 
-function norm(value = '') {
-  return String(value).toLowerCase().replace(/[^a-z0-9ぁ-んァ-ン一-龯]/g, '');
-}
-
 function isJapaneseOnePiece(card = {}) {
   return String(card.game || '').toLowerCase().includes('one piece') && String(card.language || '').toLowerCase() === 'japanese';
-}
-
-function mapTcgCard(row, requestedLanguage = 'English') {
-  const slug = row.game_slug || '';
-  const language = requestedLanguage === 'Japanese' ? 'Japanese' : 'English';
-  return {
-    id: `tcg-${row.id}-${String(row.printing || 'normal').toLowerCase().replace(/\s+/g, '-')}`,
-    providerId: row.id,
-    game: displayGame(slug),
-    language,
-    name: row.name || 'Unknown card',
-    set: row.set_name || '',
-    number: row.number || '',
-    rarity: row.rarity || '',
-    variant: row.printing || (row.foil_only ? 'Foil' : 'Normal'),
-    image: row.image_url || '',
-    tcgplayerUrl: row.tcgplayer_url || '',
-    marketUsd: Number(row.market_price || 0),
-    lowUsd: Number(row.low_price || 0),
-    medianUsd: Number(row.median_price || 0),
-    priceUpdatedAt: row.price_updated_at || null,
-    priceSource: 'TCGplayer via TCG API',
-    color: slug === 'pokemon' ? '#2f78c4' : '#d74b3f',
-    accent: slug === 'pokemon' ? '#f4d548' : '#f2bf45',
-    icon: slug === 'pokemon' ? '◆' : '☠'
-  };
 }
 
 function parseRateLimit(response) {
@@ -86,7 +60,7 @@ async function tcgSearch(env, query, game = '', perPage = 20) {
     err.rateLimit = rateLimit;
     throw err;
   }
-  return { ...data, rate_limit: rateLimit || data.rate_limit || null };
+  return { ...data, rate_limit: rateLimit || null };
 }
 
 async function fxRate(from, to, fallback) {
@@ -118,13 +92,10 @@ function normalizeYuyuRows(payload) {
   return [];
 }
 
-async function yuyuSearch(env, query, filters = {}) {
+async function yuyuSearch(env, query) {
   if (!env.PARSE_API_KEY) throw new Error('PARSE_API_KEY is not configured');
   const u = new URL(`${PARSE_BASE}/search_cards`);
   u.searchParams.set('search_word', query);
-  if (filters.rarity) u.searchParams.set('rarity', filters.rarity);
-  if (filters.version) u.searchParams.set('version', filters.version);
-  if (filters.card_type) u.searchParams.set('card_type', filters.card_type);
 
   const response = await fetch(u, {
     headers: { 'X-API-Key': env.PARSE_API_KEY, 'Accept': 'application/json' },
@@ -132,16 +103,37 @@ async function yuyuSearch(env, query, filters = {}) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok || data?.status === 'error') {
-    const err = new Error(data?.message || `Yuyu-Tei API returned ${response.status}`);
+    const err = new Error(data?.message || data?.error || `Yuyu-Tei API returned ${response.status}`);
     err.status = response.status;
     throw err;
   }
   return { raw: data, cards: normalizeYuyuRows(data) };
 }
 
-function versionFromCardNumber(number = '') {
-  const m = String(number).trim().match(/^([A-Z]{2,5}\d{1,2})-/i);
-  return m ? m[1].toLowerCase() : '';
+function mapTcgCard(row, requestedLanguage = 'English', artworkOnly = false) {
+  const slug = row.game_slug || '';
+  const language = requestedLanguage === 'Japanese' ? 'Japanese' : 'English';
+  return {
+    id: `tcg-${row.id}-${String(row.printing || 'normal').toLowerCase().replace(/\s+/g, '-')}`,
+    providerId: row.id,
+    game: displayGame(slug),
+    language,
+    name: row.name || 'Unknown card',
+    set: row.set_name || '',
+    number: row.number || '',
+    rarity: row.rarity || '',
+    variant: row.printing || (row.foil_only ? 'Foil' : 'Normal'),
+    image: row.image_url || '',
+    tcgplayerUrl: row.tcgplayer_url || '',
+    marketUsd: artworkOnly ? 0 : Number(row.market_price || 0),
+    lowUsd: artworkOnly ? 0 : Number(row.low_price || 0),
+    medianUsd: artworkOnly ? 0 : Number(row.median_price || 0),
+    priceUpdatedAt: row.price_updated_at || null,
+    priceSource: artworkOnly ? 'Artwork reference via TCG API' : 'TCGplayer via TCG API',
+    color: slug === 'pokemon' ? '#2f78c4' : '#d74b3f',
+    accent: slug === 'pokemon' ? '#f4d548' : '#f2bf45',
+    icon: slug === 'pokemon' ? '◆' : '☠'
+  };
 }
 
 function mapYuyuCard(row, jpyPhp) {
@@ -152,13 +144,13 @@ function mapYuyuCard(row, jpyPhp) {
     providerId: row.card_url || row.card_code || '',
     game: 'One Piece',
     language: 'Japanese',
-    name: row.card_name || 'Unknown card',
-    set: String(row.version || '').toUpperCase(),
-    number: row.card_code || '',
+    name: row.card_name || row.name || 'Unknown card',
+    set: String(row.version || row.set || '').toUpperCase(),
+    number: row.card_code || row.number || '',
     rarity: row.rarity || '',
-    variant: /パラレル/.test(row.card_name || '') ? 'Parallel' : 'Japanese printing',
-    image: row.image_url || '',
-    yuyuUrl: row.card_url || '',
+    variant: /パラレル/.test(row.card_name || row.name || '') ? 'Parallel' : 'Japanese printing',
+    image: row.image_url || row.image || '',
+    yuyuUrl: row.card_url || row.url || '',
     priceYen: yen,
     market: yen > 0 ? Number((yen * jpyPhp).toFixed(2)) : 0,
     priceUpdatedAt: new Date().toISOString(),
@@ -189,14 +181,27 @@ function bestYuyuMatch(rows, card) {
   const number = norm(card.number), name = norm(card.name), rarity = norm(card.rarity);
   return rows.map(row => {
     let score = 0;
-    if (number && norm(row.card_code) === number) score += 100;
-    if (card.yuyuUrl && row.card_url === card.yuyuUrl) score += 1000;
-    if (card.image && row.image_url === card.image) score += 700;
-    if (name && norm(row.card_name).includes(name)) score += 50;
+    const rowCode = row.card_code || row.number || '';
+    const rowName = row.card_name || row.name || '';
+    const rowImage = row.image_url || row.image || '';
+    const rowUrl = row.card_url || row.url || '';
+    if (number && norm(rowCode) === number) score += 100;
+    if (card.yuyuUrl && rowUrl === card.yuyuUrl) score += 1000;
+    if (card.image && rowImage === card.image) score += 700;
+    if (name && norm(rowName).includes(name)) score += 50;
     if (rarity && norm(row.rarity) === rarity) score += 20;
-    if (String(card.variant || '').toLowerCase().includes('parallel') && /パラレル/.test(row.card_name || '')) score += 30;
+    if (String(card.variant || '').toLowerCase().includes('parallel') && /パラレル/.test(rowName)) score += 30;
     return { row, score };
   }).sort((a, b) => b.score - a.score)[0]?.row || rows[0];
+}
+
+async function jpArtworkFallback(env, query) {
+  try {
+    const data = await tcgSearch(env, query, 'one-piece-card-game', 24);
+    return { cards: (data.data || []).map(row => mapTcgCard(row, 'Japanese', true)), rateLimit: data.rate_limit || null };
+  } catch (error) {
+    return { cards: [], rateLimit: error?.rateLimit || null };
+  }
 }
 
 async function handleCardSearch(request, env) {
@@ -206,17 +211,34 @@ async function handleCardSearch(request, env) {
   const requestedGame = url.searchParams.get('game') || '';
   if (q.length < 2) return json({ cards: [], message: 'Enter at least 2 characters.' }, { status: 400 });
 
-  const jpOnePiece = requestedLanguage === 'Japanese' && (!requestedGame || String(requestedGame).toLowerCase().includes('one piece') || /^([A-Z]{2,5}\d{1,2})-/i.test(q));
+  const jpOnePiece = requestedLanguage === 'Japanese' && (!requestedGame || String(requestedGame).toLowerCase().includes('one piece') || /^[A-Z]{2,5}\d{1,2}-/i.test(q));
   if (jpOnePiece) {
+    const rate = await jpyPhpRate();
     try {
-      const [data, rate] = await Promise.all([
-        yuyuSearch(env, q, { version: versionFromCardNumber(q) }),
-        jpyPhpRate()
-      ]);
-      const cards = data.cards.map(row => mapYuyuCard(row, rate));
-      return json({ cards, jpCallCount: 1, jpSource: 'Yuyu-Tei', jpyPhpRate: rate, note: 'Japanese One Piece prices are Yuyu-Tei Japan retail prices.' }, { headers: { 'cache-control': 'private, max-age=300' } });
+      const yuyu = await yuyuSearch(env, q);
+      const yuyuCards = yuyu.cards.map(row => mapYuyuCard(row, rate));
+      if (yuyuCards.length) {
+        return json({ cards: yuyuCards, jpCallCount: 1, jpSource: 'Yuyu-Tei', jpyPhpRate: rate, note: 'Japanese One Piece prices are Yuyu-Tei Japan retail prices.' }, { headers: { 'cache-control': 'private, max-age=300' } });
+      }
+
+      const fallback = await jpArtworkFallback(env, q);
+      return json({
+        cards: fallback.cards,
+        rateLimit: fallback.rateLimit,
+        jpCallCount: 1,
+        jpSource: 'Yuyu-Tei + artwork fallback',
+        jpyPhpRate: rate,
+        note: fallback.cards.length ? 'No Yuyu-Tei JP price match yet. Artwork fallback shown so you can identify the correct card.' : 'No Japanese One Piece match found yet.'
+      }, { headers: { 'cache-control': 'private, max-age=300' } });
     } catch (error) {
-      return json({ cards: [], jpCallCount: 0, message: String(error?.message || error) }, { status: 502 });
+      const fallback = await jpArtworkFallback(env, q);
+      return json({
+        cards: fallback.cards,
+        rateLimit: fallback.rateLimit,
+        jpCallCount: 0,
+        jpSource: 'Artwork fallback',
+        message: fallback.cards.length ? `Yuyu-Tei unavailable: ${String(error?.message || error)}. Artwork fallback shown.` : String(error?.message || error)
+      }, { status: fallback.cards.length ? 200 : 502, headers: { 'cache-control': 'private, max-age=120' } });
     }
   }
 
@@ -244,7 +266,10 @@ async function handleCardImage(request) {
   }
 
   try {
-    const response = await fetch(target.toString(), { headers: { 'Accept': 'image/avif,image/webp,image/*,*/*;q=0.8' }, cf: { cacheTtl: 604800, cacheEverything: true } });
+    const response = await fetch(target.toString(), {
+      headers: { 'Accept': 'image/avif,image/webp,image/*,*/*;q=0.8' },
+      cf: { cacheTtl: 604800, cacheEverything: true }
+    });
     if (!response.ok) return new Response('Image unavailable', { status: response.status });
     const headers = new Headers();
     headers.set('content-type', response.headers.get('content-type') || 'image/jpeg');
@@ -272,27 +297,49 @@ async function handlePrices(request, env) {
     if (query.length < 2) continue;
 
     if (isJapaneseOnePiece(card)) {
+      let matched = false;
       try {
-        const data = await yuyuSearch(env, query, { version: versionFromCardNumber(card.number), rarity: card.rarity || '' });
+        const yuyu = await yuyuSearch(env, query);
         jpCallCount += 1;
-        const match = bestYuyuMatch(data.cards, card);
-        if (!match) continue;
-        const yen = Number(match.price || 0);
-        quotes[card.id] = {
-          market: yen > 0 ? Number((yen * jpyRate).toFixed(2)) : 0,
-          priceYen: yen,
-          jpyPhpRate: jpyRate,
-          source: 'Yuyu-Tei Japan retail',
-          updatedAt: new Date().toISOString()
-        };
-        updates[card.id] = {
-          providerId: match.card_url || match.card_code || '',
-          image: match.image_url || card.image || '',
-          yuyuUrl: match.card_url || card.yuyuUrl || '',
-          priceSource: 'Yuyu-Tei Japan retail',
-          lastPriceCheck: new Date().toISOString()
-        };
+        const match = bestYuyuMatch(yuyu.cards, card);
+        if (match) {
+          matched = true;
+          const yen = Number(match.price || 0);
+          const image = match.image_url || match.image || card.image || '';
+          const yuyuUrl = match.card_url || match.url || card.yuyuUrl || '';
+          quotes[card.id] = {
+            market: yen > 0 ? Number((yen * jpyRate).toFixed(2)) : 0,
+            priceYen: yen,
+            jpyPhpRate: jpyRate,
+            source: 'Yuyu-Tei Japan retail',
+            updatedAt: new Date().toISOString()
+          };
+          updates[card.id] = {
+            providerId: yuyuUrl || match.card_code || match.number || '',
+            image,
+            yuyuUrl,
+            priceSource: 'Yuyu-Tei Japan retail',
+            lastPriceCheck: new Date().toISOString()
+          };
+        }
       } catch {}
+
+      if (!matched || !updates[card.id]?.image) {
+        const fallback = await jpArtworkFallback(env, query);
+        latestRateLimit = fallback.rateLimit || latestRateLimit;
+        const rows = fallback.cards;
+        if (rows.length) {
+          const exact = rows.find(x => norm(x.number) === norm(card.number)) || rows[0];
+          updates[card.id] = {
+            ...(updates[card.id] || {}),
+            providerId: updates[card.id]?.providerId || exact.providerId || '',
+            image: updates[card.id]?.image || exact.image || card.image || '',
+            tcgplayerUrl: exact.tcgplayerUrl || card.tcgplayerUrl || '',
+            priceSource: updates[card.id]?.priceSource || 'Artwork reference via TCG API',
+            lastPriceCheck: new Date().toISOString()
+          };
+        }
+      }
       continue;
     }
 
@@ -301,7 +348,9 @@ async function handlePrices(request, env) {
       latestRateLimit = data.rate_limit || latestRateLimit;
       const match = bestTcgMatch(data.data || [], card);
       if (!match) continue;
-      const marketUsd = Number(match.market_price || 0), lowUsd = Number(match.low_price || 0), medianUsd = Number(match.median_price || 0);
+      const marketUsd = Number(match.market_price || 0);
+      const lowUsd = Number(match.low_price || 0);
+      const medianUsd = Number(match.median_price || 0);
       quotes[card.id] = {
         market: marketUsd > 0 ? Number((marketUsd * usdRate).toFixed(2)) : 0,
         low: lowUsd > 0 ? Number((lowUsd * usdRate).toFixed(2)) : 0,
@@ -320,16 +369,46 @@ async function handlePrices(request, env) {
       };
     } catch (error) {
       latestRateLimit = error?.rateLimit || latestRateLimit;
-      if (error?.status === 429) return json({ quotes, updates, rateLimit: latestRateLimit, jpCallCount, paused: true, message: 'Daily free TCG lookup limit reached. Continue tomorrow.' }, { status: 429 });
+      if (error?.status === 429) {
+        return json({ quotes, updates, rateLimit: latestRateLimit, jpCallCount, paused: true, message: 'Daily free TCG lookup limit reached. Continue tomorrow.' }, { status: 429 });
+      }
     }
   }
 
   return json({ quotes, updates, currency: 'PHP', usdPhpRate: usdRate, jpyPhpRate: jpyRate, rateLimit: latestRateLimit, jpCallCount }, { headers: { 'cache-control': 'no-store' } });
 }
 
+async function handleHealth(request, env) {
+  const url = new URL(request.url);
+  const base = {
+    ok: true,
+    tcgKeyConfigured: Boolean(env.TCGAPI_KEY),
+    parseKeyConfigured: Boolean(env.PARSE_API_KEY),
+    worker: 'guanlaos-tcg'
+  };
+  if (url.searchParams.get('probe') !== '1') return json(base, { headers: { 'cache-control': 'no-store' } });
+
+  const result = { ...base, parseProbe: null, tcgProbe: null };
+  try {
+    const y = await yuyuSearch(env, 'OP17-112');
+    result.parseProbe = { ok: true, matches: y.cards.length };
+  } catch (error) {
+    result.parseProbe = { ok: false, error: String(error?.message || error) };
+  }
+  try {
+    const t = await tcgSearch(env, 'OP17-112', 'one-piece-card-game', 5);
+    result.tcgProbe = { ok: true, matches: (t.data || []).length };
+  } catch (error) {
+    result.tcgProbe = { ok: false, error: String(error?.message || error) };
+  }
+  result.ok = Boolean(result.parseProbe?.ok || result.tcgProbe?.ok);
+  return json(result, { headers: { 'cache-control': 'no-store' } });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.pathname === '/api/health' && request.method === 'GET') return handleHealth(request, env);
     if (url.pathname === '/api/card-search' && request.method === 'GET') return handleCardSearch(request, env);
     if (url.pathname === '/api/card-image' && request.method === 'GET') return handleCardImage(request);
     if (url.pathname === '/api/prices') return handlePrices(request, env);
