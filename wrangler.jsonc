@@ -1,0 +1,11 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "guanlaos-tcg",
+  "main": "worker.js",
+  "compatibility_date": "2026-09-13",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  }
+}
