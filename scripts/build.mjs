@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 
 const root = process.cwd();
 const out = resolve(root, 'dist');
-const assets = ['styles.css', 'retro-polish.css', 'app.js', 'api-hook.js', 'collection-edit.js', 'dashboard-cleanup.js', 'ui-cleanup.js'];
+const assets = ['styles.css', 'retro-polish.css', 'app.js', 'api-hook.js', 'search-render-guard.js', 'collection-edit.js', 'dashboard-cleanup.js', 'ui-cleanup.js'];
 
 await rm(out, { recursive: true, force: true });
 await mkdir(out, { recursive: true });
@@ -16,6 +16,7 @@ const index = await readFile(resolve(root, 'index.html'), 'utf8');
 const marker = '<script type="module" src="./app.js"></script>';
 const extras = [
   '<script src="./api-hook.js"></script>',
+  '<script src="./search-render-guard.js"></script>',
   marker,
   '<script src="./collection-edit.js"></script>',
   '<script src="./dashboard-cleanup.js"></script>',
