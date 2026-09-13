@@ -15,7 +15,19 @@
   }
   function writeJson(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} }
   function priceCache() { return readJson(PRICE_CACHE_KEY, {}); }
-  function rateState() { return readJson(RATE_KEY, null); }
+  function rateState() {
+    const s = readJson(RATE_KEY, null);
+    if (!s) return null;
+    const remaining = Number(s.daily_remaining);
+    const age = Date.now() - Number(s.savedAt || 0);
+    const invalidZero = Number.isFinite(remaining) && remaining <= 0 && !s.daily_reset;
+    const staleNoReset = !s.daily_reset && age > 12 * 60 * 60 * 1000;
+    if (invalidZero || staleNoReset) {
+      localStorage.removeItem(RATE_KEY);
+      return null;
+    }
+    return s;
+  }
   function monthKey() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
   function jpUsage() {
     const s = readJson(JP_USAGE_KEY, null);
@@ -44,6 +56,11 @@
       savedAt: Date.now()
     };
     if (!Number.isFinite(normalized.daily_remaining)) return;
+    if (normalized.daily_remaining <= 0 && !normalized.daily_reset) {
+      localStorage.removeItem(RATE_KEY);
+      renderBudget();
+      return;
+    }
     writeJson(RATE_KEY, normalized);
     renderBudget();
   }
@@ -79,7 +96,7 @@
     const jp = jpUsage();
     const jpLeft = jpRemaining();
     const jpPaused = jpLeft <= 0;
-    let tcgText = 'TCG free budget: waiting for API status';
+    let tcgText = 'TCG provider: budget status unavailable';
     if (r && !resetPassed(r)) {
       const left = Math.max(0, Number(r.daily_remaining || 0));
       const limit = Number(r.daily_limit || 100);
@@ -91,7 +108,7 @@
       ? `JP Yuyu-Tei guard: ${jp.used}/${JP_MONTHLY_GUARD} cached calls used this month · JP lookups paused`
       : `JP Yuyu-Tei: about ${jpLeft} guarded calls left this month`;
     box.style.background = (jpPaused || shouldPause()) ? '#fff0e5' : '#fff8da';
-    box.innerHTML = `🃏 <b>${tcgText}</b><br>🇯🇵 <b>${jpText}</b><br><span style="font-weight:600">24-hour price/photo cache active. Existing photos and last prices remain visible when a guard pauses lookups.</span>`;
+    box.innerHTML = `🃏 <b>${tcgText}</b><br>🇯🇵 <b>${jpText}</b><br><span style="font-weight:600">Japanese One Piece lookups use Yuyu-Tei independently. 24-hour price/photo cache active.</span>`;
   }
 
   function quoteFromCard(card) {
