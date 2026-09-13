@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 
 const root = process.cwd();
 const out = resolve(root, 'dist');
-const assets = ['styles.css', 'retro-polish.css', 'app.js', 'api-hook.js', 'collection-edit.js', 'stay-search.js', 'search-state-fix.js'];
+const assets = ['styles.css', 'retro-polish.css', 'app.js', 'api-hook.js', 'collection-edit.js', 'stay-search.js', 'search-state-fix.js', 'dashboard-cleanup.js'];
 
 await rm(out, { recursive: true, force: true });
 await mkdir(out, { recursive: true });
@@ -19,7 +19,8 @@ const extras = [
   marker,
   '<script src="./collection-edit.js"></script>',
   '<script src="./stay-search.js"></script>',
-  '<script src="./search-state-fix.js"></script>'
+  '<script src="./search-state-fix.js"></script>',
+  '<script src="./dashboard-cleanup.js"></script>'
 ].join('\n  ');
 const builtIndex = index.replace(marker, extras);
 await writeFile(resolve(out, 'index.html'), builtIndex);
