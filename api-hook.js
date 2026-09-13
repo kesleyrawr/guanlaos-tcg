@@ -226,9 +226,8 @@
         cache[card.id] = { quote: quote || cache[card.id]?.quote || null, update: update || cache[card.id]?.update || null, checkedAt: now };
       }
       writeJson(PRICE_CACHE_KEY, cache);
-      const cardsChanged = enrichStoredCards(data?.updates || {});
+      enrichStoredCards(data?.updates || {});
       const merged = cachedBundle(allCards);
-      if (cardsChanged) setTimeout(() => location.reload(), 80);
       return synthetic({ ...data, quotes: { ...merged.quotes, ...(data?.quotes || {}) }, updates: { ...merged.updates, ...(data?.updates || {}) }, cached: false }, response.ok ? 200 : response.status);
     }
 
@@ -257,11 +256,6 @@
     return response;
   };
 
-  document.addEventListener('click', event => {
-    const add = event.target?.closest?.('#addCard');
-    if (!add) return;
-    setTimeout(() => { location.reload(); }, 300);
-  });
   window.addEventListener('load', renderBudget);
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', renderBudget); else renderBudget();
 })();
