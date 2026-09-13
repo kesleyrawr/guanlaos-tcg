@@ -2,78 +2,63 @@
   const ACTIVE_KEY = 'guanlao-active-profile';
   const PROFILES_KEY = 'guanlao-profiles-v1';
   const BASE_COLLECTION_KEY = 'cardvault-v2';
-  const BASE_BACKUP_STAMP = 'guanlao-last-backup';
-  const BASE_BACKUP_FILE = 'GUANLAOS-TCG-BACKUP.json';
-
-  const nativeGet = Storage.prototype.getItem;
-  const nativeSet = Storage.prototype.setItem;
-  const nativeRemove = Storage.prototype.removeItem;
-
-  function nativeRead(key) { return nativeGet.call(localStorage, key); }
-  function nativeWrite(key, value) { nativeSet.call(localStorage, key, value); }
 
   function readProfiles() {
     try {
-      const saved = JSON.parse(nativeRead(PROFILES_KEY) || 'null');
+      const saved = JSON.parse(localStorage.getItem(PROFILES_KEY) || 'null');
       if (Array.isArray(saved) && saved.length >= 2) return saved;
     } catch {}
     const defaults = [
       { id: 'bess', name: 'Bess' },
       { id: 'partner', name: 'Partner' }
     ];
-    nativeWrite(PROFILES_KEY, JSON.stringify(defaults));
+    localStorage.setItem(PROFILES_KEY, JSON.stringify(defaults));
     return defaults;
   }
 
+  function readCards(key) {
+    try {
+      const value = JSON.parse(localStorage.getItem(key) || '[]');
+      return Array.isArray(value) ? value : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function mergeLegacyProfileCollections() {
+    const sources = [
+      readCards(BASE_COLLECTION_KEY),
+      readCards(`${BASE_COLLECTION_KEY}::bess`),
+      readCards(`${BASE_COLLECTION_KEY}::partner`)
+    ];
+    const merged = [];
+    for (const list of sources) {
+      for (const raw of list) {
+        const card = { ...raw };
+        const condition = card.condition || 'Near Mint';
+        const existing = merged.find(x => x.id === card.id && (x.condition || 'Near Mint') === condition);
+        if (!existing) {
+          merged.push(card);
+          continue;
+        }
+        existing.quantity = Math.max(Number(existing.quantity || 1), Number(card.quantity || 1));
+        if (!Number(existing.acquired || 0) && Number(card.acquired || 0)) existing.acquired = Number(card.acquired || 0);
+        if (!existing.image && card.image) existing.image = card.image;
+        if (!existing.providerId && card.providerId) existing.providerId = card.providerId;
+        if (!existing.priceSource && card.priceSource) existing.priceSource = card.priceSource;
+      }
+    }
+    if (merged.length) localStorage.setItem(BASE_COLLECTION_KEY, JSON.stringify(merged));
+  }
+
+  mergeLegacyProfileCollections();
+
   let profiles = readProfiles();
-  let activeId = nativeRead(ACTIVE_KEY) || '';
-  const storageProfileId = activeId || 'bess';
+  let activeId = localStorage.getItem(ACTIVE_KEY) || '';
 
-  // Preserve the collection that existed before profiles were introduced.
-  const oldCollection = nativeRead(BASE_COLLECTION_KEY);
-  const bessKey = `${BASE_COLLECTION_KEY}::bess`;
-  if (oldCollection && !nativeRead(bessKey)) nativeWrite(bessKey, oldCollection);
-
-  function scopedKey(key) {
-    if (key === BASE_COLLECTION_KEY || key === BASE_BACKUP_STAMP) return `${key}::${storageProfileId}`;
-    return key;
-  }
-
-  Storage.prototype.getItem = function(key) {
-    return nativeGet.call(this, this === localStorage ? scopedKey(String(key)) : key);
-  };
-  Storage.prototype.setItem = function(key, value) {
-    return nativeSet.call(this, this === localStorage ? scopedKey(String(key)) : key, value);
-  };
-  Storage.prototype.removeItem = function(key) {
-    return nativeRemove.call(this, this === localStorage ? scopedKey(String(key)) : key);
-  };
-
-  function slugName(name) {
-    return String(name || 'PROFILE').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '') || 'PROFILE';
-  }
   function activeProfile() {
-    return profiles.find(p => p.id === storageProfileId) || profiles[0];
+    return profiles.find(p => p.id === activeId) || profiles[0];
   }
-  function backupFileName() {
-    return `GUANLAOS-TCG-BACKUP-${slugName(activeProfile().name)}.json`;
-  }
-
-  // Keep automatic PC backups separate per profile without changing app.js.
-  if (window.FileSystemDirectoryHandle?.prototype?.getFileHandle) {
-    const originalGetFileHandle = FileSystemDirectoryHandle.prototype.getFileHandle;
-    FileSystemDirectoryHandle.prototype.getFileHandle = function(name, options) {
-      const next = name === BASE_BACKUP_FILE ? backupFileName() : name;
-      return originalGetFileHandle.call(this, next, options);
-    };
-  }
-
-  // Manual Download Backup should also use a profile-specific filename.
-  const originalAnchorClick = HTMLAnchorElement.prototype.click;
-  HTMLAnchorElement.prototype.click = function() {
-    if (this.download === BASE_BACKUP_FILE) this.download = backupFileName();
-    return originalAnchorClick.call(this);
-  };
 
   function esc(value = '') {
     return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
@@ -83,17 +68,17 @@
     const clean = String(name || '').trim();
     if (!clean) return;
     profiles = profiles.map(p => p.id === 'partner' ? { ...p, name: clean } : p);
-    nativeWrite(PROFILES_KEY, JSON.stringify(profiles));
+    localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles));
     renderLogin();
   }
 
   function chooseProfile(id) {
-    nativeWrite(ACTIVE_KEY, id);
+    localStorage.setItem(ACTIVE_KEY, id);
     location.reload();
   }
 
   function logout() {
-    nativeRemove.call(localStorage, ACTIVE_KEY);
+    localStorage.removeItem(ACTIVE_KEY);
     location.reload();
   }
 
@@ -103,12 +88,12 @@
       <div class="profile-login-card">
         <div class="profile-login-logo">▰</div>
         <h1>GUANLAO'S TCG COLLECTOR</h1>
-        <p>Choose who's collecting on this PC.</p>
+        <p>Choose who's using the collector.</p>
         <div class="profile-choices">
-          ${profiles.map((p, index) => `<button class="profile-choice" data-profile-id="${esc(p.id)}"><span>${index === 0 ? 'BS' : 'TCG'}</span><b>${esc(p.name)}</b><small>${index === 0 ? 'Existing collection' : 'Separate collection'}</small></button>`).join('')}
+          ${profiles.map((p, index) => `<button class="profile-choice" data-profile-id="${esc(p.id)}"><span>${index === 0 ? 'BS' : 'TCG'}</span><b>${esc(p.name)}</b><small>Shared collection & backup</small></button>`).join('')}
         </div>
         ${partner.name === 'Partner' ? `<div class="partner-setup"><label>Name the second profile</label><div><input id="partnerProfileName" placeholder="Your husband's name"><button id="savePartnerProfile">Save name</button></div></div>` : ''}
-        <small class="profile-login-note">Profiles are stored locally on this browser. This is not an online password account.</small>
+        <small class="profile-login-note">Both profiles use the same collection and the same PC backup. The login only changes who is currently using the app.</small>
       </div>`;
   }
 
@@ -137,15 +122,8 @@
     const sync = document.querySelector('.aside-foot .sync small');
     if (sync && !sync.dataset.profileDecorated) {
       sync.dataset.profileDecorated = '1';
-      sync.textContent = `${profile.name} · Ready`;
+      sync.textContent = `${profile.name} · Shared collection`;
     }
-
-    document.querySelectorAll('.backup-panel p').forEach(p => {
-      if (p.textContent.includes(BASE_BACKUP_FILE)) {
-        p.innerHTML = p.innerHTML.replace(BASE_BACKUP_FILE, esc(backupFileName()));
-      }
-    });
-
     if (!document.getElementById('switchProfileButton')) {
       const foot = document.querySelector('.aside-foot');
       if (foot) {
@@ -179,7 +157,7 @@
     document.head.appendChild(style);
   }
 
-  window.GUANLAO_PROFILE = { activeProfile, backupFileName, logout };
+  window.GUANLAO_PROFILE = { activeProfile, logout };
 
   function boot() {
     addStyles();
