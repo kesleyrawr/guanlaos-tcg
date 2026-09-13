@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 
 const root = process.cwd();
 const out = resolve(root, 'dist');
-const assets = ['styles.css', 'retro-polish.css', 'app.js', 'api-hook.js', 'search-render-guard.js', 'search-freeze.js', 'card-search-fix.js', 'collection-edit.js', 'dashboard-cleanup.js', 'ui-cleanup.js', 'collection-dashboard-ui.js'];
+const assets = ['styles.css', 'retro-polish.css', 'app.js', 'api-hook.js', 'search-render-guard.js', 'search-freeze.js', 'card-search-fix.js', 'collection-edit.js', 'dashboard-cleanup.js', 'ui-cleanup.js', 'collection-dashboard-ui.js', 'hits-ui.js'];
 
 await rm(out, { recursive: true, force: true });
 await mkdir(out, { recursive: true });
@@ -23,7 +23,8 @@ const extras = [
   '<script src="./collection-edit.js"></script>',
   '<script src="./dashboard-cleanup.js"></script>',
   '<script src="./ui-cleanup.js"></script>',
-  '<script src="./collection-dashboard-ui.js"></script>'
+  '<script src="./collection-dashboard-ui.js"></script>',
+  '<script src="./hits-ui.js"></script>'
 ].join('\n  ');
 const builtIndex = index.replace(marker, extras);
 await writeFile(resolve(out, 'index.html'), builtIndex);
