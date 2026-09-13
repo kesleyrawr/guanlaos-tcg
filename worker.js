@@ -107,6 +107,17 @@ async function fxRate(from, to, fallback) {
 async function usdPhpRate() { return fxRate('USD', 'PHP', FALLBACK_USD_PHP); }
 async function jpyPhpRate() { return fxRate('JPY', 'PHP', FALLBACK_JPY_PHP); }
 
+function normalizeYuyuRows(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.cards)) return payload.cards;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.results)) return payload.results;
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.data?.cards)) return payload.data.cards;
+  if (Array.isArray(payload?.data?.results)) return payload.data.results;
+  return [];
+}
+
 async function yuyuSearch(env, query, filters = {}) {
   if (!env.PARSE_API_KEY) throw new Error('PARSE_API_KEY is not configured');
   const u = new URL(`${PARSE_BASE}/search_cards`);
@@ -125,7 +136,7 @@ async function yuyuSearch(env, query, filters = {}) {
     err.status = response.status;
     throw err;
   }
-  return data?.data || data || {};
+  return { raw: data, cards: normalizeYuyuRows(data) };
 }
 
 function versionFromCardNumber(number = '') {
@@ -202,7 +213,7 @@ async function handleCardSearch(request, env) {
         yuyuSearch(env, q, { version: versionFromCardNumber(q) }),
         jpyPhpRate()
       ]);
-      const cards = (data.cards || []).map(row => mapYuyuCard(row, rate));
+      const cards = data.cards.map(row => mapYuyuCard(row, rate));
       return json({ cards, jpCallCount: 1, jpSource: 'Yuyu-Tei', jpyPhpRate: rate, note: 'Japanese One Piece prices are Yuyu-Tei Japan retail prices.' }, { headers: { 'cache-control': 'private, max-age=300' } });
     } catch (error) {
       return json({ cards: [], jpCallCount: 0, message: String(error?.message || error) }, { status: 502 });
@@ -226,8 +237,11 @@ async function handleCardImage(request) {
   try { target = new URL(raw); } catch { return new Response('Invalid image URL', { status: 400 }); }
   if (target.protocol !== 'https:') return new Response('HTTPS images only', { status: 400 });
 
-  const allowed = ['tcgplayer-cdn.tcgplayer.com','images.pokemontcg.io','assets.tcgdex.net','en.onepiece-cardgame.com','asia-en.onepiece-cardgame.com','card.yuyu-tei.jp'];
-  if (!allowed.some(host => target.hostname === host || target.hostname.endsWith(`.${host}`))) return new Response('Image host not allowed', { status: 403 });
+  const allowedHosts = ['tcgplayer-cdn.tcgplayer.com','images.pokemontcg.io','assets.tcgdex.net','en.onepiece-cardgame.com','asia-en.onepiece-cardgame.com'];
+  const yuyuHost = target.hostname === 'yuyu-tei.jp' || target.hostname.endsWith('.yuyu-tei.jp');
+  if (!yuyuHost && !allowedHosts.some(host => target.hostname === host || target.hostname.endsWith(`.${host}`))) {
+    return new Response('Image host not allowed', { status: 403 });
+  }
 
   try {
     const response = await fetch(target.toString(), { headers: { 'Accept': 'image/avif,image/webp,image/*,*/*;q=0.8' }, cf: { cacheTtl: 604800, cacheEverything: true } });
@@ -261,7 +275,7 @@ async function handlePrices(request, env) {
       try {
         const data = await yuyuSearch(env, query, { version: versionFromCardNumber(card.number), rarity: card.rarity || '' });
         jpCallCount += 1;
-        const match = bestYuyuMatch(data.cards || [], card);
+        const match = bestYuyuMatch(data.cards, card);
         if (!match) continue;
         const yen = Number(match.price || 0);
         quotes[card.id] = {
