@@ -3,19 +3,25 @@ import { resolve } from 'node:path';
 
 const root = process.cwd();
 const out = resolve(root, 'dist');
+const assets = ['styles.css', 'retro-polish.css', 'app.js', 'api-hook.js', 'collection-edit.js', 'stay-search.js', 'search-state-fix.js'];
 
 await rm(out, { recursive: true, force: true });
 await mkdir(out, { recursive: true });
 
-for (const file of ['styles.css', 'retro-polish.css', 'app.js', 'api-hook.js', 'collection-edit.js', 'stay-search.js']) {
+for (const file of assets) {
   await copyFile(resolve(root, file), resolve(out, file));
 }
 
 const index = await readFile(resolve(root, 'index.html'), 'utf8');
-const builtIndex = index.replace(
-  '<script type="module" src="./app.js"></script>',
-  '<script src="./api-hook.js"></script>\n  <script type="module" src="./app.js"></script>\n  <script src="./collection-edit.js"></script>\n  <script src="./stay-search.js"></script>'
-);
+const marker = '<script type="module" src="./app.js"></script>';
+const extras = [
+  '<script src="./api-hook.js"></script>',
+  marker,
+  '<script src="./collection-edit.js"></script>',
+  '<script src="./stay-search.js"></script>',
+  '<script src="./search-state-fix.js"></script>'
+].join('\n  ');
+const builtIndex = index.replace(marker, extras);
 await writeFile(resolve(out, 'index.html'), builtIndex);
 
 await writeFile(resolve(out, '_headers'), `/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n`);
