@@ -1,5 +1,8 @@
 const TCG_BASE = 'https://api.tcgapi.dev/v1';
 const FALLBACK_USD_PHP = 60;
+const PRICE_CACHE_SECONDS = 24 * 60 * 60;
+const SEARCH_CACHE_SECONDS = 24 * 60 * 60;
+const PRICE_RESERVE = 10;
 
 function json(data, init = {}) {
   const headers = new Headers(init.headers || {});
@@ -8,24 +11,49 @@ function json(data, init = {}) {
   return new Response(JSON.stringify(data), { ...init, headers });
 }
 
-function gameSlug(value = '') {
+function gameSlug(value = '', language = '') {
   const v = String(value).toLowerCase();
-  if (v.includes('pok')) return 'pokemon';
+  const lang = String(language).toLowerCase();
+  if (v.includes('pok')) return lang.includes('jap') ? 'pokemon-japan' : 'pokemon';
   if (v.includes('one piece')) return 'one-piece-card-game';
   return '';
 }
 
 function displayGame(slug = '') {
-  return slug === 'pokemon' ? 'Pokémon' : slug === 'one-piece-card-game' ? 'One Piece' : 'TCG';
+  if (slug === 'pokemon' || slug === 'pokemon-japan') return 'Pokémon';
+  if (slug === 'one-piece-card-game') return 'One Piece';
+  return 'TCG';
 }
 
 function norm(value = '') {
   return String(value).toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-function mapCard(row, requestedLanguage = 'English') {
+function rateInfo(data, response) {
+  const body = data?.rate_limit || null;
+  const limit = Number(response?.headers?.get('X-RateLimit-Limit') || body?.daily_limit || 0) || null;
+  const remaining = Number(response?.headers?.get('X-RateLimit-Remaining') || body?.daily_remaining || 0);
+  const reset = response?.headers?.get('X-RateLimit-Reset') || body?.daily_reset || null;
+  return {
+    daily_limit: limit,
+    daily_remaining: Number.isFinite(remaining) ? remaining : null,
+    daily_reset: reset || null
+  };
+}
+
+function mapCard(row, requestedLanguage = 'English', usdPhp = FALLBACK_USD_PHP) {
   const slug = row.game_slug || '';
-  const language = requestedLanguage === 'Japanese' ? 'Japanese' : 'English';
+  const isJapanPokemon = slug === 'pokemon-japan';
+  const language = isJapanPokemon || requestedLanguage === 'Japanese' ? 'Japanese' : 'English';
+  const marketUsd = Number(row.market_price || 0);
+  const lowUsd = Number(row.low_price || 0);
+  const medianUsd = Number(row.median_price || 0);
+  const source = isJapanPokemon
+    ? 'Pokémon Japan market via TCG API'
+    : language === 'Japanese' && slug === 'one-piece-card-game'
+      ? 'TCGplayer English market reference'
+      : 'TCGplayer via TCG API';
+
   return {
     id: `tcg-${row.id}-${String(row.printing || 'normal').toLowerCase().replace(/\s+/g, '-')}`,
     providerId: row.id,
@@ -38,19 +66,61 @@ function mapCard(row, requestedLanguage = 'English') {
     variant: row.printing || (row.foil_only ? 'Foil' : 'Normal'),
     image: row.image_url || '',
     tcgplayerUrl: row.tcgplayer_url || '',
-    marketUsd: Number(row.market_price || 0),
-    lowUsd: Number(row.low_price || 0),
-    medianUsd: Number(row.median_price || 0),
+    marketUsd,
+    lowUsd,
+    medianUsd,
+    market: marketUsd > 0 ? Number((marketUsd * usdPhp).toFixed(2)) : 0,
+    low: lowUsd > 0 ? Number((lowUsd * usdPhp).toFixed(2)) : 0,
+    median: medianUsd > 0 ? Number((medianUsd * usdPhp).toFixed(2)) : 0,
+    usdPhpRate: usdPhp,
     priceUpdatedAt: row.price_updated_at || null,
-    priceSource: 'TCGplayer via TCG API',
-    color: slug === 'pokemon' ? '#2f78c4' : '#d74b3f',
-    accent: slug === 'pokemon' ? '#f4d548' : '#f2bf45',
-    icon: slug === 'pokemon' ? '◆' : '☠'
+    priceSource: source,
+    color: slug.startsWith('pokemon') ? '#2f78c4' : '#d74b3f',
+    accent: slug.startsWith('pokemon') ? '#f4d548' : '#f2bf45',
+    icon: slug.startsWith('pokemon') ? '◆' : '☠'
   };
 }
 
-async function tcgSearch(env, query, game = '', perPage = 20) {
+async function cacheGet(key) {
+  try {
+    const cache = caches.default;
+    const hit = await cache.match(key);
+    if (!hit) return null;
+    return await hit.json();
+  } catch {
+    return null;
+  }
+}
+
+async function cachePut(key, data, ttl) {
+  try {
+    const cache = caches.default;
+    await cache.put(key, new Response(JSON.stringify(data), {
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': `public, max-age=${ttl}`
+      }
+    }));
+  } catch {
+    // Cache failure should never block the app.
+  }
+}
+
+function searchCacheKey(query, game, perPage) {
+  const u = new URL('https://guanlao-cache.invalid/search');
+  u.searchParams.set('q', String(query).trim().toLowerCase());
+  if (game) u.searchParams.set('game', game);
+  u.searchParams.set('per_page', String(perPage));
+  return new Request(u.toString(), { method: 'GET' });
+}
+
+async function tcgSearch(env, query, game = '', perPage = 20, cacheSeconds = SEARCH_CACHE_SECONDS) {
   if (!env.TCGAPI_KEY) throw new Error('TCGAPI_KEY is not configured');
+
+  const cacheKey = searchCacheKey(query, game, perPage);
+  const cached = await cacheGet(cacheKey);
+  if (cached) return { ...cached, _fromCache: true };
+
   const u = new URL(`${TCG_BASE}/search`);
   u.searchParams.set('q', query);
   u.searchParams.set('type', 'Cards');
@@ -65,22 +135,41 @@ async function tcgSearch(env, query, game = '', perPage = 20) {
     }
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(data?.message || `TCG API returned ${response.status}`);
+  const rateLimit = rateInfo(data, response);
+
+  if (response.status === 429) {
+    const err = new Error('Daily free lookup limit reached. Continue tomorrow.');
+    err.status = 429;
+    err.rateLimit = rateLimit;
+    throw err;
   }
-  return data;
+  if (!response.ok) {
+    const err = new Error(data?.message || `TCG API returned ${response.status}`);
+    err.status = response.status;
+    err.rateLimit = rateLimit;
+    throw err;
+  }
+
+  const out = { ...data, rate_limit: rateLimit };
+  await cachePut(cacheKey, out, cacheSeconds);
+  return out;
 }
 
 async function usdPhpRate() {
+  const key = new Request('https://guanlao-cache.invalid/fx/usd-php');
+  const cached = await cacheGet(key);
+  if (cached?.rate) return Number(cached.rate);
+
   try {
     const r = await fetch('https://api.frankfurter.dev/v2/rate/usd/php', {
-      headers: { 'Accept': 'application/json' },
-      cf: { cacheTtl: 21600, cacheEverything: true }
+      headers: { 'Accept': 'application/json' }
     });
     if (!r.ok) throw new Error('FX unavailable');
     const data = await r.json();
     const rate = Number(data?.rate);
-    return Number.isFinite(rate) && rate > 0 ? rate : FALLBACK_USD_PHP;
+    const good = Number.isFinite(rate) && rate > 0 ? rate : FALLBACK_USD_PHP;
+    await cachePut(key, { rate: good }, 21600);
+    return good;
   } catch {
     return FALLBACK_USD_PHP;
   }
@@ -113,17 +202,26 @@ async function handleCardSearch(request, env) {
   if (q.length < 2) return json({ cards: [], message: 'Enter at least 2 characters.' }, { status: 400 });
 
   try {
-    const data = await tcgSearch(env, q, gameSlug(requestedGame), 24);
-    const cards = (data.data || []).map(row => mapCard(row, requestedLanguage));
+    const rate = await usdPhpRate();
+    const slug = gameSlug(requestedGame, requestedLanguage);
+    const data = await tcgSearch(env, q, slug, 24);
+    const cards = (data.data || []).map(row => mapCard(row, requestedLanguage, rate));
     return json({
       cards,
-      rateLimit: data.rate_limit || null,
-      note: requestedLanguage === 'Japanese'
-        ? 'Artwork and pricing are matched from the English/TCGplayer catalog when available.'
+      rateLimit: data._fromCache ? null : (data.rate_limit || null),
+      cached: Boolean(data._fromCache),
+      note: requestedLanguage === 'Japanese' && slug === 'one-piece-card-game'
+        ? 'One Piece Japanese cards use English/TCGplayer pricing as a reference until a dedicated Japanese-market source is connected.'
         : null
     }, { headers: { 'cache-control': 'public, max-age=60' } });
   } catch (error) {
-    return json({ cards: [], message: String(error?.message || error) }, { status: 502 });
+    const status = error?.status === 429 ? 429 : 502;
+    return json({
+      cards: [],
+      message: String(error?.message || error),
+      rateLimit: error?.rateLimit || null,
+      paused: status === 429
+    }, { status });
   }
 }
 
@@ -150,12 +248,12 @@ async function handleCardImage(request) {
   try {
     const response = await fetch(target.toString(), {
       headers: { 'Accept': 'image/avif,image/webp,image/*,*/*;q=0.8' },
-      cf: { cacheTtl: 86400, cacheEverything: true }
+      cf: { cacheTtl: 604800, cacheEverything: true }
     });
     if (!response.ok) return new Response('Image unavailable', { status: response.status });
     const headers = new Headers();
     headers.set('content-type', response.headers.get('content-type') || 'image/jpeg');
-    headers.set('cache-control', 'public, max-age=86400');
+    headers.set('cache-control', 'public, max-age=604800');
     return new Response(response.body, { status: 200, headers });
   } catch {
     return new Response('Image unavailable', { status: 502 });
@@ -167,50 +265,78 @@ async function handlePrices(request, env) {
 
   let payload;
   try { payload = await request.json(); } catch { return json({ quotes: {}, message: 'Invalid JSON' }, { status: 400 }); }
-  const cards = Array.isArray(payload?.cards) ? payload.cards.slice(0, 20) : [];
-  if (!cards.length) return json({ quotes: {}, updates: {} });
+  const cards = Array.isArray(payload?.cards) ? payload.cards.slice(0, 12) : [];
+  if (!cards.length) return json({ quotes: {}, updates: {}, rateLimit: null });
 
   const rate = await usdPhpRate();
   const quotes = {};
   const updates = {};
+  let latestRateLimit = null;
+  let paused = false;
+  let processed = 0;
 
   for (const card of cards) {
     const query = String(card.number || card.name || '').trim();
     if (query.length < 2) continue;
 
     try {
-      const data = await tcgSearch(env, query, gameSlug(card.game), 12);
+      const data = await tcgSearch(env, query, gameSlug(card.game, card.language), 12, PRICE_CACHE_SECONDS);
+      if (!data._fromCache && data.rate_limit) latestRateLimit = data.rate_limit;
+
       const match = bestMatch(data.data || [], card);
       if (!match) continue;
 
-      const marketUsd = Number(match.market_price || 0);
-      const lowUsd = Number(match.low_price || 0);
-      const medianUsd = Number(match.median_price || 0);
-
+      const mapped = mapCard(match, card.language || 'English', rate);
       quotes[card.id] = {
-        market: marketUsd > 0 ? Number((marketUsd * rate).toFixed(2)) : 0,
-        low: lowUsd > 0 ? Number((lowUsd * rate).toFixed(2)) : 0,
-        median: medianUsd > 0 ? Number((medianUsd * rate).toFixed(2)) : 0,
-        marketUsd,
+        market: mapped.market,
+        low: mapped.low,
+        median: mapped.median,
+        marketUsd: mapped.marketUsd,
         usdPhpRate: rate,
-        source: card.language === 'Japanese' ? 'TCGplayer English market reference' : 'TCGplayer via TCG API',
-        updatedAt: match.price_updated_at || new Date().toISOString()
+        source: mapped.priceSource,
+        updatedAt: mapped.priceUpdatedAt || new Date().toISOString(),
+        checkedAt: new Date().toISOString()
       };
 
       updates[card.id] = {
         providerId: match.id,
         image: match.image_url || card.image || '',
         tcgplayerUrl: match.tcgplayer_url || card.tcgplayerUrl || '',
-        priceSource: quotes[card.id].source
+        priceSource: mapped.priceSource,
+        lastPriceCheck: new Date().toISOString()
       };
-    } catch {
-      // Keep the rest of the collection updating even if one card fails.
+      processed += 1;
+
+      const remaining = Number(latestRateLimit?.daily_remaining);
+      if (Number.isFinite(remaining) && remaining <= PRICE_RESERVE) {
+        paused = true;
+        break;
+      }
+    } catch (error) {
+      if (error?.status === 429) {
+        latestRateLimit = error?.rateLimit || latestRateLimit;
+        paused = true;
+        break;
+      }
+      // Keep updating the rest if one lookup fails for a normal reason.
     }
   }
 
-  return json({ quotes, updates, currency: 'PHP', usdPhpRate: rate }, {
-    headers: { 'cache-control': 'no-store' }
-  });
+  const message = paused
+    ? 'Automatic price refresh paused to protect the free daily lookup allowance. Continue tomorrow after the API resets.'
+    : null;
+
+  return json({
+    quotes,
+    updates,
+    currency: 'PHP',
+    usdPhpRate: rate,
+    rateLimit: latestRateLimit,
+    paused,
+    processed,
+    reserve: PRICE_RESERVE,
+    message
+  }, { headers: { 'cache-control': 'no-store' } });
 }
 
 export default {
