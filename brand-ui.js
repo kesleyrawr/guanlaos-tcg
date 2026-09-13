@@ -48,5 +48,12 @@
     setTimeout(applyBrand, 120);
   }
 
+  document.addEventListener('click', event => {
+    if (event.target?.closest?.('#savePartnerProfile')) setTimeout(applyBrand, 30);
+  }, true);
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && event.target?.id === 'partnerProfileName') setTimeout(applyBrand, 30);
+  }, true);
+
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();
