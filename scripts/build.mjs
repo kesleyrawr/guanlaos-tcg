@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 
 const root = process.cwd();
 const out = resolve(root, 'dist');
-const assets = ['styles.css', 'retro-polish.css', 'app.js', 'app-logo.svg', 'alphabetical-sort.js', 'profile-manager.js', 'api-hook.js', 'jp-cooldown-ui.js', 'search-render-guard.js', 'search-freeze.js', 'card-search-fix.js', 'collection-edit.js', 'dashboard-cleanup.js', 'ui-cleanup.js', 'collection-dashboard-ui.js', 'hits-ui.js', 'backup-overview-ui.js', 'brand-ui.js'];
+const assets = ['styles.css', 'retro-polish.css', 'app.js', 'app-logo.svg', 'alphabetical-sort.js', 'profile-manager.js', 'api-hook.js', 'jp-cooldown-ui.js', 'search-render-guard.js', 'search-freeze.js', 'card-search-fix.js', 'collection-edit.js', 'dashboard-cleanup.js', 'ui-cleanup.js', 'collection-dashboard-ui.js', 'hits-ui.js', 'backup-overview-ui.js', 'brand-ui.js', 'rarity-ui.js', 'rarity-runtime.js'];
 
 await rm(out, { recursive: true, force: true });
 await mkdir(out, { recursive: true });
@@ -19,6 +19,8 @@ const extras = [
   '<script src="./profile-manager.js"></script>',
   '<script src="./api-hook.js"></script>',
   '<script src="./jp-cooldown-ui.js"></script>',
+  '<script src="./rarity-ui.js"></script>',
+  '<script src="./rarity-runtime.js"></script>',
   '<script src="./search-render-guard.js"></script>',
   marker,
   '<script src="./search-freeze.js"></script>',
