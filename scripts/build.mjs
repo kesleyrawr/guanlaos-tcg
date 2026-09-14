@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 
 const root = process.cwd();
 const out = resolve(root, 'dist');
-const assets = ['styles.css', 'retro-polish.css', 'app.js', 'app-logo.svg', 'profile-manager.js', 'api-hook.js', 'jp-cooldown-ui.js', 'search-render-guard.js', 'search-freeze.js', 'card-search-fix.js', 'collection-edit.js', 'dashboard-cleanup.js', 'ui-cleanup.js', 'collection-dashboard-ui.js', 'hits-ui.js', 'backup-overview-ui.js', 'brand-ui.js'];
+const assets = ['styles.css', 'retro-polish.css', 'app.js', 'app-logo.svg', 'alphabetical-sort.js', 'profile-manager.js', 'api-hook.js', 'jp-cooldown-ui.js', 'search-render-guard.js', 'search-freeze.js', 'card-search-fix.js', 'collection-edit.js', 'dashboard-cleanup.js', 'ui-cleanup.js', 'collection-dashboard-ui.js', 'hits-ui.js', 'backup-overview-ui.js', 'brand-ui.js'];
 
 await rm(out, { recursive: true, force: true });
 await mkdir(out, { recursive: true });
@@ -15,6 +15,7 @@ for (const file of assets) {
 const index = await readFile(resolve(root, 'index.html'), 'utf8');
 const marker = '<script type="module" src="./app.js"></script>';
 const extras = [
+  '<script src="./alphabetical-sort.js"></script>',
   '<script src="./profile-manager.js"></script>',
   '<script src="./api-hook.js"></script>',
   '<script src="./jp-cooldown-ui.js"></script>',
