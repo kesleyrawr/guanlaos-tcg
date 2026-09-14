@@ -1,5 +1,6 @@
 (() => {
   const STORAGE_KEY = 'cardvault-v2';
+  const FILTER_KEY = 'guanlao-quantity-filter';
   const PAGE_SIZE = 20;
   const groups = [
     { key: 'Pokémon English', label: 'Pokémon English' },
@@ -9,6 +10,8 @@
   ];
   let selectedGroup = 'All';
   let currentPage = 1;
+  let quantityFilter = localStorage.getItem(FILTER_KEY) || 'all';
+  if (!['all', 'single', 'duplicates'].includes(quantityFilter)) quantityFilter = 'all';
 
   function readCards() {
     try {
@@ -42,8 +45,11 @@
   }
 
   function filteredCards() {
-    const cards = readCards();
-    return selectedGroup === 'All' ? cards : cards.filter(card => groupKey(card) === selectedGroup);
+    let cards = readCards();
+    if (selectedGroup !== 'All') cards = cards.filter(card => groupKey(card) === selectedGroup);
+    if (quantityFilter === 'single') cards = cards.filter(card => Number(card.quantity || 1) === 1);
+    if (quantityFilter === 'duplicates') cards = cards.filter(card => Number(card.quantity || 1) >= 2);
+    return cards;
   }
 
   function cardArt(card) {
@@ -95,6 +101,7 @@
         if (!card) return;
         card.quantity = Number(card.quantity || 1) + 1;
         saveCards(cards);
+        ensureValidPage();
         renderCollection();
       });
 
@@ -130,6 +137,12 @@
     if (topSearch) topSearch.style.display = 'none';
   }
 
+  function quantityFilterLabel() {
+    if (quantityFilter === 'single') return 'Originals / single-copy only';
+    if (quantityFilter === 'duplicates') return 'Duplicates only';
+    return 'All quantities';
+  }
+
   function renderCollection() {
     ensureValidPage();
     setCollectionNavActive();
@@ -151,12 +164,28 @@
           <p class="muted">${list.length} unique card${list.length === 1 ? '' : 's'} · showing ${firstShown}-${lastShown}</p>
         </div>
       </div>
-      ${pageCards.length ? `<div id="customCollectionGrid" class="collection-grid">${pageCards.map(collectionCard).join('')}</div>` : `<div class="empty"><h3>No cards here yet</h3><p>Add cards through Card Search and they will appear here.</p></div>`}
+      <div class="quantity-filter-panel" role="group" aria-label="Collection quantity filter">
+        <span>Show:</span>
+        <button type="button" data-qty-filter="all" class="${quantityFilter === 'all' ? 'active' : ''}">All</button>
+        <button type="button" data-qty-filter="single" class="${quantityFilter === 'single' ? 'active' : ''}">Originals · Qty 1</button>
+        <button type="button" data-qty-filter="duplicates" class="${quantityFilter === 'duplicates' ? 'active' : ''}">Duplicates · Qty 2+</button>
+        <small>${esc(quantityFilterLabel())}</small>
+      </div>
+      ${pageCards.length ? `<div id="customCollectionGrid" class="collection-grid">${pageCards.map(collectionCard).join('')}</div>` : `<div class="empty"><h3>No cards match this view</h3><p>Try another quantity filter or collection category.</p></div>`}
       <div class="collection-pagination">
         <button class="secondary" id="collectionPrev" ${currentPage <= 1 ? 'disabled' : ''}>← Previous</button>
         <span>Page <b>${currentPage}</b> of <b>${totalPages}</b></span>
         <button class="secondary" id="collectionNext" ${currentPage >= totalPages ? 'disabled' : ''}>Next →</button>
       </div>`;
+
+    document.querySelectorAll('[data-qty-filter]').forEach(button => {
+      button.addEventListener('click', () => {
+        quantityFilter = button.dataset.qtyFilter || 'all';
+        localStorage.setItem(FILTER_KEY, quantityFilter);
+        currentPage = 1;
+        renderCollection();
+      });
+    });
 
     document.getElementById('collectionPrev')?.addEventListener('click', () => {
       if (currentPage <= 1) return;
@@ -221,10 +250,12 @@
       .collection-subnav{display:grid;gap:5px;margin:-4px 8px 8px 18px;padding-left:8px;border-left:2px solid rgba(36,59,120,.28)}
       .collection-subnav button{font:700 11px/1.25 ui-monospace,SFMono-Regular,Menlo,monospace;text-align:left;padding:7px 9px;border:0;border-radius:7px;background:transparent;color:#243b78;cursor:pointer}
       .collection-subnav button:hover,.collection-subnav button.active{background:#fff4bb;box-shadow:2px 2px 0 #ef6b45}
+      .quantity-filter-panel{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 18px;padding:10px 12px;border:2px solid #243b78;border-radius:10px;background:#fffaf0;box-shadow:3px 3px 0 #f2bf45}
+      .quantity-filter-panel>span{font-weight:900;color:#243b78}.quantity-filter-panel button{padding:7px 10px;border:2px solid #243b78;border-radius:999px;background:#fff;color:#243b78;font-weight:800;cursor:pointer}.quantity-filter-panel button.active{background:#ffd95e;box-shadow:2px 2px 0 #ef6b45}.quantity-filter-panel small{margin-left:auto;opacity:.65}
       .collection-pagination{display:flex;justify-content:center;align-items:center;gap:14px;margin:24px 0 8px;flex-wrap:wrap}
       .collection-pagination button:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
       .collection-page-heading{display:flex;justify-content:space-between;align-items:end;gap:16px;margin-bottom:14px}
-      @media(max-width:760px){.collection-subnav{display:none}}
+      @media(max-width:760px){.collection-subnav{display:none}.quantity-filter-panel small{width:100%;margin-left:0}}
     `;
     document.head.appendChild(style);
   }
